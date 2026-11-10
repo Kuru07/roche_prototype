@@ -15,7 +15,7 @@ GROQ_TIMEOUT = float(os.getenv("GROQ_TIMEOUT", "20.0"))
 
 # Embeddings & Vector Search
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5").strip()
-AUTO_LOAD_DEMO_DATA = os.getenv("AUTO_LOAD_DEMO_DATA", "true").lower() in ("true", "1", "yes")
+AUTO_LOAD_DEMO_DATA = os.getenv("AUTO_LOAD_DEMO_DATA", "false").lower() in ("true", "1", "yes")
 
 # Safety Caps & Limits
 MAX_SQL_ROWS = 200

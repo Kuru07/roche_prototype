@@ -2,7 +2,7 @@ import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from app.state import get_memory_stats, get_db
+from app.state import get_memory_stats, get_db, reset_in_memory_db
 from app.agents import handle_user_query, FormulaRegistry
 from app.ingestion.universal_engine import import_dynamic_sources_csv, ingest_source
 from app.ingestion.adapters.html_adapter import HtmlAdapter
@@ -15,44 +15,67 @@ from app.source_policy import (
 )
 
 class TestIntegrationAndPolicyGates(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        reset_in_memory_db()
     
     def test_01_in_memory_telemetry(self):
         """Gate 1: Checking In-Memory Telemetry."""
         stats = get_memory_stats()
         self.assertTrue(stats["is_pure_in_memory"])
-        self.assertEqual(stats["synthetic_observations"], 8)
+        self.assertEqual(stats["synthetic_observations"], 0)
         self.assertEqual(stats["verified_observations"], 0)
-        self.assertEqual(stats["faiss_chunks_indexed"], 5)
+        self.assertEqual(stats["faiss_chunks_indexed"], 0)
         print(f"  PASS: In-memory stores initialized ({stats['total_observations']} observations, {stats['faiss_chunks_indexed']} FAISS docs).")
 
     def test_02_calculation_guardrail(self):
         """Gate 2: Testing Calculation Guardrail."""
-        calc_res = handle_user_query("Calculate reference price for Trastuzumab in Ecuador")
+        calc_res = handle_user_query("Calculate reference price for Treanda in Paraguay")
         self.assertIn("NOT CALCULATED — Official Roche methodology pending.", calc_res["answer"])
         self.assertIsNone(calc_res["calculation"].reference_price)
         self.assertFalse(calc_res["calculation"].assumed_formula_applied)
         print("  PASS: Calculation strictly adheres to pending status with no assumed formula.")
 
     def test_03_sql_agent_and_bounded_result(self):
-        """Gate 3: Testing SQL Agent & Bounded Result."""
-        sql_res = handle_user_query("Show prices for Trastuzumab")
+        """Gate 3: Testing SQL Agent & Bounded Result on Real Ingested Source."""
+        ingest_source(101)
+        sql_res = handle_user_query("Show prices for Treanda in Paraguay")
         obs_count = len(sql_res["data"])
         self.assertGreater(obs_count, 0)
-        self.assertTrue(all(r["is_synthetic"] is True for r in sql_res["data"]))
-        print(f"  PASS: Retrieved {obs_count} demo price observations.")
+        self.assertTrue(all(r["is_synthetic"] is False for r in sql_res["data"]))
+        self.assertTrue(all(r["country"] == "Paraguay" for r in sql_res["data"]))
+        print(f"  PASS: Retrieved {obs_count} real price observations (0 synthetic).")
 
     def test_04_rag_agent(self):
         """Gate 4: Testing RAG Agent."""
-        rag_res = handle_user_query("Explain Ecuador Pharmaceutical Reference Pricing Framework decree")
+        from app.state import add_documents_to_faiss
+        rag_empty = handle_user_query("Explain Ecuador Pharmaceutical Reference Pricing Framework decree")
+        self.assertEqual(len(rag_empty["citations"]), 0)
+        self.assertIn("No relevant regulatory", rag_empty["answer"])
+
+        add_documents_to_faiss([{
+            "doc_id": "DINAVISA-RES-01",
+            "title": "DINAVISA Resolution REP Paraguay",
+            "country": "Paraguay",
+            "source_authority": "DINAVISA",
+            "source_url": "https://dinavisa.gov.py/precio-maximo-rep-fijado-por-la-dinavisa/",
+            "section": "Article 1",
+            "content": "Establece el precio maximo de referencia para medicamentos esenciales en Paraguay.",
+            "publication_date": "2024-01-01",
+            "verification_status": "APPROVED_ROCHE_SOURCE",
+            "is_synthetic": False
+        }])
+        rag_res = handle_user_query("What decree governs pricing in Paraguay?")
         self.assertGreater(len(rag_res["citations"]), 0)
-        self.assertTrue(any("DEMO" in c["title"] for c in rag_res["citations"]))
-        print(f"  PASS: RAG retrieved {len(rag_res['citations'])} citations with synthetic flags.")
+        self.assertFalse(rag_res["citations"][0]["is_synthetic"])
+        print(f"  PASS: RAG retrieved {len(rag_res['citations'])} verified citations (0 synthetic).")
 
     def test_05_hybrid_agent(self):
         """Gate 5: Testing Hybrid Agent."""
-        hyb_res = handle_user_query("What are Trastuzumab prices in España and what decree governs pricing there?")
+        hyb_res = handle_user_query("What are Treanda prices in Paraguay and what decree governs pricing there?")
         self.assertGreater(len(hyb_res["data"]), 0)
         self.assertGreater(len(hyb_res["citations"]), 0)
+        self.assertTrue(all(r["is_synthetic"] is False for r in hyb_res["data"]))
         print(f"  PASS: Hybrid pipeline harmonized {len(hyb_res['data'])} records and {len(hyb_res['citations'])} citations.")
 
     def test_06_dynamic_source_csv_import(self):

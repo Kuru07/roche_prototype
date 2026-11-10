@@ -8,8 +8,7 @@ import duckdb
 import faiss
 from app.config import (
     DATA_DIR,
-    EMBEDDING_MODEL_NAME,
-    AUTO_LOAD_DEMO_DATA
+    EMBEDDING_MODEL_NAME
 )
 from app.source_policy import (
     validate_roche_source_url,
@@ -140,8 +139,15 @@ def _get_embedder():
     _EMBEDDER = ResilientSemanticEmbedder(dim=_EMBED_DIM)
     return _EMBEDDER
 
+def reset_in_memory_faiss():
+    """Resets the singleton in-memory FAISS index and chunk store for test isolation."""
+    global _FAISS_INDEX, _DOCUMENT_CHUNKS
+    with _LOCK:
+        _FAISS_INDEX = None
+        _DOCUMENT_CHUNKS = []
+
 def reset_in_memory_db():
-    """Resets the singleton in-memory DuckDB connection for test isolation."""
+    """Resets the singleton in-memory DuckDB connection and FAISS stores for test isolation."""
     global _CONN
     with _LOCK:
         if _CONN is not None:
@@ -150,6 +156,7 @@ def reset_in_memory_db():
             except Exception:
                 pass
             _CONN = None
+        reset_in_memory_faiss()
 
 # Safely close DuckDB connection at process exit to prevent nanobind leak warnings
 atexit.register(reset_in_memory_db)
@@ -162,8 +169,6 @@ def get_db():
             _CONN = duckdb.connect(":memory:")
             _CONN.execute(SCHEMA_SQL)
             _initialize_roche_source_registry(_CONN)
-            if AUTO_LOAD_DEMO_DATA:
-                _load_initial_demo_data(_CONN)
         return _CONN
 
 def get_faiss_index():
@@ -172,8 +177,6 @@ def get_faiss_index():
     with _LOCK:
         if _FAISS_INDEX is None:
             _FAISS_INDEX = faiss.IndexFlatIP(_EMBED_DIM)
-            if AUTO_LOAD_DEMO_DATA:
-                _load_initial_demo_docs()
         return _FAISS_INDEX, _DOCUMENT_CHUNKS
 
 def embed_texts(texts: list[str]) -> np.ndarray:
@@ -258,120 +261,6 @@ def _initialize_roche_source_registry(con):
         )
         """
     )
-
-def _load_initial_demo_data(con):
-    """Loads labeled DEMO / SYNTHETIC pricing records into DuckDB :memory:."""
-    demo_file = DATA_DIR / "demo_pricing_records.json"
-    if not demo_file.exists():
-        return
-    
-    try:
-        with open(demo_file, "r", encoding="utf-8") as f:
-            records = json.load(f)
-        
-        max_id = con.execute("SELECT COALESCE(MAX(source_id), 0) FROM sources").fetchone()[0]
-        
-        sources_seen = {}
-        for r in records:
-            url = r.get("source_url", "")
-            # Only allow approved URLs
-            if url and not is_roche_approved_url(url):
-                continue
-            
-            sid = r["source_id"]
-            if sid not in sources_seen:
-                max_id += 1
-                sources_seen[sid] = (
-                    max_id,
-                    r["country"],
-                    r["source_name"],
-                    r.get("source_authority", "DEMO Authority"),
-                    url,
-                    "synthetic_demo",
-                    "DEMO_SYNTHETIC",
-                    True,
-                    24,
-                    json.dumps({"mode": "demo_seed"}),
-                    None,
-                    "seed_ready",
-                    r.get("mapping_notes", "Initial demo seed source")
-                )
-        
-        for s in sources_seen.values():
-            con.execute(
-                "INSERT OR REPLACE INTO sources VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                list(s)
-            )
-        
-        for r in records:
-            url = r.get("source_url", "")
-            if url and not is_roche_approved_url(url):
-                continue
-            
-            search_text = " ".join(str(r.get(k) or "") for k in [
-                "molecule_name", "brand_name", "active_ingredient",
-                "strength", "dosage_form", "manufacturer", "country", "source_authority"
-            ])
-            raw_json = json.dumps(r.get("source_row", {}), ensure_ascii=False)
-            
-            con.execute(
-                """
-                INSERT OR REPLACE INTO price_observations VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, CURRENT_TIMESTAMP, ?, ?
-                )
-                """,
-                [
-                    r["observation_id"],
-                    r["country"],
-                    r["source_id"],
-                    r["source_name"],
-                    r["source_authority"],
-                    url,
-                    r["verification_status"],
-                    bool(r.get("is_synthetic", True)),
-                    float(r.get("extraction_confidence", 0.9)),
-                    bool(r.get("needs_review", False)),
-                    r.get("mapping_notes", "Demo seed record"),
-                    r.get("molecule_name"),
-                    r.get("brand_name"),
-                    r.get("active_ingredient"),
-                    r.get("strength"),
-                    r.get("dosage_form"),
-                    r.get("pack_size"),
-                    r.get("presentation") or r.get("pack_size"),
-                    r.get("manufacturer"),
-                    r["currency"],
-                    r.get("price_retail"),
-                    r.get("price_consumer"),
-                    r.get("price_wholesale"),
-                    r.get("price_public"),
-                    r.get("price_type"),
-                    r.get("price_regime"),
-                    r.get("price_value"),
-                    r.get("price_per_unit"),
-                    r.get("published_at"),
-                    r.get("effective_date"),
-                    raw_json,
-                    search_text
-                ]
-            )
-    except Exception as exc:
-        print(f"Notice loading demo pricing records: {exc}")
-
-def _load_initial_demo_docs():
-    """Loads labeled DEMO / SYNTHETIC regulatory documents into the FAISS index."""
-    docs_file = DATA_DIR / "demo_regulatory_docs.json"
-    if not docs_file.exists():
-        return
-    try:
-        with open(docs_file, "r", encoding="utf-8") as f:
-            docs = json.load(f)
-        add_documents_to_faiss(docs)
-    except Exception as exc:
-        print(f"Notice loading demo regulatory docs: {exc}")
 
 def get_memory_stats() -> dict:
     """Returns live in-memory telemetry including Roche source policy metrics."""

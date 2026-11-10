@@ -8,6 +8,10 @@ class TestIntentClassification(unittest.TestCase):
     def setUpClass(cls):
         reset_in_memory_db()
 
+    @classmethod
+    def tearDownClass(cls):
+        reset_in_memory_db()
+
     def test_01_greeting_intent(self):
         """1. Verifies GREETING category for conversational greetings."""
         queries = ["Hello", "Hi", "Hey", "Good morning", "Hola", "greetings"]
@@ -107,6 +111,7 @@ class TestIntentClassification(unittest.TestCase):
 
     def test_05_rag_query_intent(self):
         """5. Verifies RAG_QUERY category for regulatory documents, decrees, and pricing structures."""
+        from app.state import add_documents_to_faiss
         self.assertEqual(
             classify_intent("Explain the Spanish PVP IVA pricing structure"),
             "RAG_QUERY"
@@ -120,14 +125,33 @@ class TestIntentClassification(unittest.TestCase):
             "RAG_QUERY"
         )
 
-        res = handle_user_query("Explain the Spanish PVP IVA pricing structure")
+        # Before documents are added, RAG handles query gracefully without SQL
+        res_empty = handle_user_query("Explain the Spanish PVP IVA pricing structure")
+        self.assertEqual(res_empty["intent"], "RAG_QUERY")
+        self.assertIsNone(res_empty["sql"], "Regulatory RAG queries must not execute SQL")
+        self.assertEqual(res_empty["data"], [])
+        self.assertIn("No relevant regulatory", res_empty["answer"])
+
+        # Add official document to verify retrieval
+        add_documents_to_faiss([{
+            "doc_id": "DINAVISA-RES-01",
+            "title": "DINAVISA Resolution REP Paraguay",
+            "country": "Paraguay",
+            "source_authority": "DINAVISA",
+            "source_url": "https://dinavisa.gov.py/precio-maximo-rep-fijado-por-la-dinavisa/",
+            "section": "Article 1",
+            "content": "Establece el precio maximo de referencia para medicamentos esenciales en Paraguay.",
+            "publication_date": "2024-01-01",
+            "verification_status": "APPROVED_ROCHE_SOURCE",
+            "is_synthetic": False
+        }])
+
+        res = handle_user_query("What decree governs pricing in Paraguay?")
         self.assertEqual(res["intent"], "RAG_QUERY")
         self.assertIsNone(res["sql"], "Regulatory RAG queries must not execute SQL")
         self.assertTrue(len(res["citations"]) > 0, "RAG query must return citations from FAISS store")
-
-        res_ec = handle_user_query("Explain Ecuador Pharmaceutical Reference Pricing Framework decree")
-        self.assertEqual(res_ec["intent"], "RAG_QUERY")
-        self.assertIn("Ecuador", [c.get("country") for c in res_ec["citations"]])
+        self.assertEqual(res["citations"][0]["country"], "Paraguay")
+        self.assertFalse(res["citations"][0]["is_synthetic"])
 
     def test_06_calculation_intent(self):
         """6. Verifies CALCULATION category strictly checks approved Roche formulas."""

@@ -104,11 +104,11 @@ def main():
     # Quick Starter Prompt Chips
     st.markdown("**💡 Quick Starters:**")
     chips = [
-        "Show prices for Trastuzumab in España and Brasil",
+        "Show prices for Treanda in Paraguay",
+        "Find prices for Xarelto in Paraguay",
         "What is the pricing source status for Colombia?",
-        "Calculate the reference price cap for Trastuzumab in Ecuador",
-        "Explain Spain PVP IVA vs PVL pricing rules",
-        "Show source status for Argentina and Venezuela"
+        "Show source status for Argentina and Venezuela",
+        "Explain what pharmaceutical reference pricing is in simple terms"
     ]
     chip_cols = st.columns(len(chips))
     selected_chip = None

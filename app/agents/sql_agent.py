@@ -133,35 +133,13 @@ Rules:
         else:
             approved_filter = "1=1"
     else:
-        # Default pricing query: check if real non-synthetic observations exist
-        con = get_db()
-        has_real_records = False
-        try:
-            if term:
-                has_real_records = con.execute(
-                    "SELECT COUNT(*) FROM price_observations WHERE is_synthetic IS FALSE AND (molecule_name ILIKE ? OR brand_name ILIKE ? OR active_ingredient ILIKE ? OR country ILIKE ?)",
-                    [f"%{term}%", f"%{term}%", f"%{term}%", f"%{term}%"]
-                ).fetchone()[0] > 0
-            else:
-                has_real_records = con.execute("SELECT COUNT(*) FROM price_observations WHERE is_synthetic IS FALSE").fetchone()[0] > 0
-        except Exception:
-            has_real_records = False
-
-        if has_real_records:
-            # Real observations exist: strictly exclude synthetic records, unpriced rows, and review items
-            approved_filter = (
-                "verification_status NOT IN ('PENDING_ROCHE_APPROVAL', 'REJECTED_UNAPPROVED', 'PENDING_REVIEW') "
-                "AND is_synthetic IS FALSE "
-                "AND (needs_review IS FALSE OR needs_review IS NULL) "
-                "AND price_value IS NOT NULL"
-            )
-        else:
-            # Initial demo catalog fallback for un-ingested mock entities
-            approved_filter = (
-                "verification_status NOT IN ('PENDING_ROCHE_APPROVAL', 'REJECTED_UNAPPROVED', 'PENDING_REVIEW') "
-                "AND (needs_review IS FALSE OR needs_review IS NULL) "
-                "AND price_value IS NOT NULL"
-            )
+        # Default pricing query: strictly exclude synthetic records, unpriced rows, and review items
+        approved_filter = (
+            "verification_status NOT IN ('PENDING_ROCHE_APPROVAL', 'REJECTED_UNAPPROVED', 'PENDING_REVIEW') "
+            "AND is_synthetic IS FALSE "
+            "AND (needs_review IS FALSE OR needs_review IS NULL) "
+            "AND price_value IS NOT NULL"
+        )
     
     if term:
         sql = f"SELECT {cols} FROM price_observations WHERE ({approved_filter}) AND (molecule_name ILIKE '%{term}%' OR brand_name ILIKE '%{term}%' OR active_ingredient ILIKE '%{term}%' OR search_text ILIKE '%{term}%') ORDER BY country, price_value ASC LIMIT {MAX_SQL_ROWS}"
