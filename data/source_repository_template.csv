@@ -1,0 +1,4 @@
+country,source_name,url,source_type,scrape_interval_hours
+Brasil,ANVISA CMED Preços de Medicamentos,https://www.gov.br/anvisa/pt-br/assuntos/medicamentos/cmed/precos,spreadsheet,48
+España,MSSSI Precios Menores y de Referencia,https://www.sanidad.gob.es/areas/farmacia/infoIndustria/SPRAH/preciosMenoresAH/home.htm,spreadsheet,24
+Francia,Base de Données Publique des Médicaments,https://base-donnees-publique.medicaments.gouv.fr/,spreadsheet,24

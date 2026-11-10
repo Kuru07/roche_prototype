@@ -1,0 +1,61 @@
+# ==============================================================================
+# Git Ignore Configuration for Roche Reference Pricing Intelligence Prototype
+# ==============================================================================
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+*.venv/
+
+# Environment Variables & Secrets (NEVER COMMIT)
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Python Bytecode & Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Distribution / Packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Testing & Cache Artifacts
+.pytest_cache/
+.coverage
+.coverage.*
+.cache/
+.hypothesis/
+htmlcov/
+
+# In-Memory & Local Database Artifacts
+*.duckdb
+*.duckdb.tmp
+*.db
+*.sqlite3
+
+# Logs & Temporary Files
+*.log
+scratch/
+tmp/
+*.tmp
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# IDE & Editor Configurations
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
